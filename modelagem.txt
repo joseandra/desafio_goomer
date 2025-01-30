@@ -1,0 +1,103 @@
+Modelagem, Otimização e Estratégias de Armazenamento para Grandes Volumes de Dados
+Este documento apresenta uma modelagem eficiente para armazenar e processar informações sobre faturas, assinaturas e receitas mensais. Além disso, são abordadas estratégias de otimização e exemplos de consultas SQL para responder perguntas específicas relacionadas ao faturamento e assinaturas.
+
+1. Estrutura das Tabelas
+A modelagem foi estruturada em três tabelas principais para garantir flexibilidade, eficiência e escalabilidade.
+
+1.1 Tabela faturas (Invoices)
+Armazena todas as faturas emitidas, seus valores, status e datas de vencimento/pagamento.
+
+Nome da Coluna	Tipo de Dado	Descrição
+id_fatura	SERIAL PRIMARY KEY	Identificador único da fatura.
+id_assinatura	INT	Relaciona a fatura à assinatura correspondente.
+id_estabelecimento	INT	Relaciona a fatura ao estabelecimento.
+produto	VARCHAR(255)	Nome do produto faturado.
+data_emissao	DATE	Data em que a fatura foi gerada.
+data_vencimento	DATE	Data de vencimento da fatura.
+data_pagamento	DATE NULLABLE	Data em que a fatura foi paga (null se ainda não paga).
+valor_total	NUMERIC(10,2)	Valor total da fatura.
+status	VARCHAR(50)	Status da fatura: 'pendente', 'pago', 'expirado'.
+
+Consulta 1: Quantos reais tivemos em faturas geradas em julho/2022 que estão aguardando o pagamento?
+SELECT SUM(valor_total) AS total_pendente
+FROM faturas
+WHERE EXTRACT(YEAR FROM data_emissao) = 2022
+  AND EXTRACT(MONTH FROM data_emissao) = 7
+  AND status = 'pendente';
+
+Consulta 2: Quantos reais tivemos em faturas expiradas em julho/2022?
+SELECT SUM(valor_total) AS total_expirado
+FROM faturas
+WHERE EXTRACT(YEAR FROM data_vencimento) = 2022
+  AND EXTRACT(MONTH FROM data_vencimento) = 7
+  AND status = 'expirado';
+
+1.2 Tabela assinaturas (Subscriptions)
+Controla as assinaturas e seu ciclo de vida.
+
+Nome da Coluna	Tipo de Dado	Descrição
+id_assinatura	SERIAL PRIMARY KEY	Identificador único da assinatura.
+id_estabelecimento	INT	Identifica o estabelecimento.
+produto	VARCHAR(255)	Nome do produto.
+data_inicio	DATE	Data de ativação da assinatura.
+data_cancelamento	DATE NULLABLE	Data do cancelamento (null se ainda ativa).
+status	VARCHAR(50)	'ativa', 'cancelada'.
+
+Consulta 3: Quantas assinaturas canceladas temos por mês?
+SELECT 
+    EXTRACT(YEAR FROM data_cancelamento) AS ano,
+    EXTRACT(MONTH FROM data_cancelamento) AS mes,
+    COUNT(*) AS total_canceladas
+FROM assinaturas
+WHERE status = 'cancelada'
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+1.3 Tabela projetos_taxas (Projects_Fees)
+Registra taxas de implementação e projetos que compõem a receita mensal.
+
+Nome da Coluna	Tipo de Dado	Descrição
+id_projeto	SERIAL PRIMARY KEY	Identificador único do projeto/taxa.
+id_estabelecimento	INT	Identifica o estabelecimento.
+descricao	VARCHAR(255)	Nome da taxa ou projeto.
+valor	NUMERIC(10,2)	Valor cobrado.
+data_faturamento	DATE	Data em que a taxa foi faturada.
+
+Consulta 4: Quanto tivemos de receita mensal de taxa de implementação e projetos?
+SELECT 
+    EXTRACT(YEAR FROM data_faturamento) AS ano,
+    EXTRACT(MONTH FROM data_faturamento) AS mes,
+    SUM(valor) AS receita_total
+FROM projetos_taxas
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+
+2. Otimizações para Grandes Volumes de Dados:
+
+Criar índices melhora a velocidade de busca, evitando a necessidade de percorrer milhões de registros.
+Se houver milhões de registros, particionar tabelas por mês ou ano reduz a carga em consultas específicas.
+
+2.3 Armazenamento de Dados Arquivados
+
+Para manter o banco ágil, faturas muito antigas podem ser movidas para uma tabela de histórico.
+
+3. Estratégias Avançadas de Armazenamento
+
+Se os dados crescerem exponencialmente, outras estratégias podem ser aplicadas:
+
+Uso de Banco de Dados OLAP (BigQuery, Snowflake, Redshift)
+
+Para análises históricas de longo prazo.
+Armazenamento Híbrido: PostgreSQL + Data Lake
+
+Usar PostgreSQL para dados recentes e S3/Google Cloud para histórico.
+Tabelas Compactadas
+
+Criar tabelas de resumo com menos registros para melhorar performance.
+Sharding (Distribuição de Dados)
+
+Separar dados em servidores diferentes para balancear a carga.
+
+4. Conclusão
+A modelagem proposta permite responder às perguntas de forma eficiente. Se os dados crescerem significativamente, o uso de índices, particionamento e armazenamento híbrido pode garantir desempenho e escalabilidade. Se precisar de ajustes específicos para um caso real, entre em contato.

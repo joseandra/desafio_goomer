@@ -1,0 +1,77 @@
+Explicação Técnica do Projeto
+
+Neste projeto, trabalhei com dados de Receita Recorrente Mensal (MRR) de cada estabelecimento e produto. O desafio foi garantir que esses valores fossem corretamente distribuídos ao longo do tempo e, posteriormente, comparados com os pagamentos de faturas para identificar discrepâncias. Além disso, um ajuste foi necessário para garantir que, caso o MRR mudasse no mês seguinte, o valor distribuído permanecesse o mesmo até o final do mês anterior à mudança.
+
+- Observação Importante
+Durante a análise, identifiquei um caso no estabelecimento ID 68, 75, onde o pagamento referente a dezembro de 2024 só ocorreu em janeiro de 2025. Isso significa que, embora dezembro tenha sido inicialmente classificado como total_discount, na prática, o pagamento foi realizado com atraso no mês seguinte. Essa situação pode ocorrer em diversos casos e deve ser levada em consideração em análises financeiras e projeções de inadimplência.
+
+O código foi dividido em duas partes principais:
+
+Parte 1.1 – Distribuição do MRR ao Longo do Tempo
+Nesta etapa, o foco foi garantir que os valores de MRR fossem propagados corretamente até que ocorresse uma mudança de valor ou churn (quando o MRR se torna 0).
+
+Principais passos
+
+Criar um histórico de mudanças no MRR (mrr_changes)
+Usei LEAD() para calcular quando o próximo evento de mudança no MRR ocorreria e qual seria o próximo valor esperado.
+Isso permite definir até que data cada valor de MRR deveria ser considerado válido.
+
+Identificar o último mês válido do MRR (last_valid_month)
+Como nem todos os produtos sofrem alterações no MRR, usei MAX(event_month) para identificar o último mês registrado para cada estabelecimento e produto.
+Distribuir os valores do MRR ao longo dos meses (mrr_monthly_distribution)
+
+Usei GENERATE_SERIES() para replicar os valores de MRR nos meses subsequentes até que houvesse uma alteração ou chegássemos ao último mês válido.
+A função LEAST() foi usada para garantir que a distribuição parasse na data correta.
+Importante: Foi ajustado para garantir que, caso o MRR mude no mês seguinte, o valor do MRR anterior continue válido até o final do mês anterior à mudança.
+Garantir que a distribuição não fosse sobrescrita por mudanças
+
+Apliquei um filtro NOT EXISTS para remover qualquer mês distribuído que tivesse um valor de MRR diferente do esperado, garantindo que não houvesse inconsistências ou sobreposição de valores.
+Impacto: Esse processo permitiu transformar os eventos esparsos do MRR em uma distribuição contínua e confiável, essencial para análises financeiras e projeções de receita.
+
+Parte 1.2 – Cruzamento com Pagamentos e Classificação
+Depois que os valores de MRR foram distribuídos corretamente, precisei compará-los com os pagamentos das faturas para identificar discrepâncias e classificá-los conforme regras de negócio. Além disso, um ajuste foi feito para garantir que múltiplos pagamentos para um mesmo produto dentro do mesmo mês fossem somados antes da comparação.
+
+Principais passos
+
+Resumir os pagamentos (invoice_summary)
+Agrupei os pagamentos por estabelecimento, produto e mês da fatura, utilizando DATE_TRUNC('month', invoice_expired_dt) para normalizar todas as faturas dentro do mesmo período.
+Somei os valores com SUM(paid), garantindo que múltiplos pagamentos para um mesmo produto no mesmo mês fossem consolidados corretamente.
+Observação Importante: Durante a análise, identifiquei que alguns pagamentos podem ocorrer com atraso. No caso do ID 68, por exemplo, o pagamento referente a dezembro de 2024 só foi registrado em 10 de janeiro de 2025.
+
+Fazer a junção entre o MRR e os pagamentos
+Usei um LEFT JOIN para garantir que todos os valores de MRR fossem considerados, mesmo se não houvesse pagamentos.
+Ajustei a junção para que os pagamentos fossem comparados dentro do mesmo mês e ano, garantindo que um pagamento feito no dia 25 de um mês fosse corretamente associado ao MRR daquele mês.
+Classificar os resultados conforme as regras de negócio
+
+Utilizei um CASE para categorizar os registros em diferentes cenários:
+Match → O valor do pagamento é igual ao MRR esperado.
+Partially_discount → O pagamento foi menor que o MRR esperado.
+Overpaid → O pagamento foi maior que o MRR esperado.
+Total_discount → Não houve pagamento registrado para aquele mês.
+Duplicate → O pagamento foi exatamente o dobro do MRR esperado.
+Impacto: Essa classificação permitiu identificar inconsistências de faturamento, consolidar corretamente múltiplos pagamentos e garantir uma análise mais precisa dos padrões de pagamento dos clientes.
+
+Conclusão e Benefícios da Solução
+
+Essa abordagem estruturada garantiu:
+Distribuição precisa do MRR ao longo do tempo, respeitando mudanças e churns.
+O MRR de um mês só muda no primeiro dia do mês seguinte, evitando distorções nas comparações.
+Comparação eficiente com os pagamentos, consolidando valores corretamente e evitando distorções na análise.
+Classificação clara dos pagamentos, permitindo ações rápidas para corrigir problemas financeiros.
+Identificação de pagamentos atrasados, como no caso do ID 68, ajudando na análise de inadimplência e fluxo de caixa.
+Escalabilidade, pois a estrutura pode ser aplicada a grandes volumes de dados sem comprometer a performance.
+
+Por que usar LEAD() e GENERATE_SERIES()?
+LEAD() nos permite identificar quando um novo valor de MRR entrará em vigor, enquanto GENERATE_SERIES() é fundamental para replicar os valores corretamente nos meses subsequentes.
+
+Como garantir que, se o MRR mudar no mês seguinte, a mudança só seja aplicada no mês seguinte?
+Ajustamos a distribuição do MRR para que o valor anterior continue válido até o último dia do mês antes da mudança. Isso evita que um novo MRR seja aplicado retroativamente.
+
+O que acontece se houver múltiplos pagamentos para um mesmo produto no mesmo mês?
+O SUM(paid) na etapa invoice_summary consolida todos os pagamentos antes da comparação com o MRR, evitando distorções na classificação.
+
+Como lidar com pagamentos feitos com atraso?
+Pagamentos feitos no mês seguinte ao MRR correspondente, como no caso do ID 68, podem ser detectados separadamente para análises de fluxo de caixa e inadimplência.
+
+Como lidaria com um grande volume de dados?
+Poderia otimizar a consulta adicionando índices (establishment_id, product, event_month) e, se necessário, criar tabelas materializadas para evitar cálculos repetitivos.

@@ -1,0 +1,144 @@
+Melhoria e Otimização da Query para Melhor Performance e Legibilidade
+
+1. Melhorias de Performance
+
+Para lidar com um grande volume de dados, implementei algumas otimizações que reduziram o tempo de execução da query.
+
+- Índices para Melhorar a Performance
+
+Criei índices para acelerar consultas filtradas por due_date, created_at e external_id.
+
+CREATE INDEX idx_subscription_due_date ON datalake.subscription (due_date);
+CREATE INDEX idx_subscription_created_at ON datalake.subscription (created_at);
+CREATE INDEX idx_subscription_external_id ON datalake.subscription (external_id);
+CREATE INDEX idx_subscription_items ON datalake.subscription USING GIN (items);
+
+Motivação: Reduzir o tempo de execução das consultas filtradas por essas colunas, melhorando o desempenho geral do banco de dados.
+
+- Melhor Uso de JSON para Redução de Processamento
+
+Para otimizar o uso do campo items (do tipo json), normalizei os dados em uma tabela separada.
+
+Criação da Tabela Normalizada
+
+CREATE TABLE datalake.subscription_items (
+    subscription_id VARCHAR NOT NULL,
+    item_id VARCHAR NOT NULL,
+    quantity INT,
+    name VARCHAR(255),
+    price_cents INT,
+    FOREIGN KEY (subscription_id) REFERENCES datalake.subscription(id)
+);
+
+Carga dos Dados
+
+INSERT INTO datalake.subscription_items (subscription_id, item_id, quantity, name, price_cents)
+SELECT 
+    id AS subscription_id,
+    jsonb_array_elements(items)->>'id' AS item_id,
+    (jsonb_array_elements(items)->>'quantity')::INT AS quantity,
+    jsonb_array_elements(items)->>'name' AS name,
+    (jsonb_array_elements(items)->>'price_cents')::INT AS price_cents
+FROM datalake.subscription;
+
+Motivação: Melhorar a performance de consultas sobre itens, evitando processamento direto no JSON.
+
+2. Melhorias na Legibilidade do Código
+
+- Nomes de Colunas e Alias Mais Descritivos
+
+Substituí alias genéricos por nomes mais descritivos para facilitar a compreensão.
+
+SELECT 
+    s.id AS subscription_id,
+    s.external_id,
+    s.created_at,
+    s.due_date,
+    s.plan AS plan_type,
+    s.interval AS billing_interval,
+    i.item_id,
+    i.name AS item_name,
+    i.quantity,
+    i.price_cents
+FROM datalake.subscription s
+LEFT JOIN datalake.subscription_items i ON s.id = i.subscription_id;
+
+- Uso de Common Table Expressions (CTEs)
+
+Utilizei CTEs para organizar melhor as subqueries e melhorar a estrutura da query.
+
+WITH item_count AS (
+    SELECT 
+        id AS subscription_id,
+        COUNT(*) AS total_items
+    FROM datalake.subscription,
+         jsonb_array_elements(items)
+    GROUP BY id
+)
+SELECT s.id, s.external_id, ic.total_items
+FROM datalake.subscription s
+LEFT JOIN item_count ic ON s.id = ic.subscription_id;
+
+Motivação: Deixar o código mais modular e de fácil manutenção.
+
+3. Estratégias Avançadas
+
+- Indexação Avançada com BRIN
+
+Para melhorar buscas em grandes volumes de dados temporais, usei BRIN em vez de BTREE.
+
+CREATE INDEX idx_subscription_created_at_brin ON datalake.subscription USING BRIN (created_at);
+
+Motivação: Índice mais leve e eficiente para dados ordenados por data.
+
+- Armazenamento de Dados Arquivados
+
+Para evitar que a tabela principal cresça indefinidamente, movi dados antigos para uma tabela de histórico.
+
+CREATE TABLE datalake.subscription_historico AS 
+SELECT * FROM datalake.subscription WHERE created_at < '2020-01-01';
+DELETE FROM datalake.subscription WHERE created_at < '2020-01-01';
+
+Motivação: Melhorar a performance mantendo a tabela principal mais enxuta.
+
+- Uso de Views Materializadas para Consultas Frequentes
+
+Para reduzir o tempo de execução de consultas repetitivas, utilizei VIEW MATERIALIZADA para armazenar assinaturas ativas.
+
+CREATE MATERIALIZED VIEW active_subscriptions AS
+SELECT 
+    id, external_id, due_date 
+FROM datalake.subscription
+WHERE due_date >= CURRENT_DATE;
+
+Isso pode ser atualizado periodicamente:
+
+REFRESH MATERIALIZED VIEW active_subscriptions;
+
+Motivação: Melhorar a velocidade de consultas frequentes sem necessidade de reprocessamento dos dados a cada execução.
+
+4. Conclusão
+
+Com essas melhorias, a query se tornou mais eficiente e fácil de entender. As principais mudanças foram:
+
+Melhoria da Performance
+
+Indexação otimizada para colunas-chave.
+
+Normalização de JSONB em uma tabela separada.
+
+Uso de BRIN para grandes volumes de dados temporais.
+
+Melhoria na Legibilidade
+
+Uso de alias mais descritivos.
+
+Reorganização do código com CTEs.
+
+Otimização da Execução
+
+Indexação parcial para buscas frequentes.
+
+Views materializadas para cálculos repetitivos.
+
+Armazenamento de dados antigos em uma tabela de histórico.
