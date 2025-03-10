@@ -1,4 +1,4 @@
-WITH mrr_changes AS (
+python --versionWITH mrr_changes AS (
     SELECT
         establishment_id,
         product,
